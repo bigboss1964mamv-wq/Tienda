@@ -206,8 +206,21 @@ const App = () => {
 
     const fetchData = async () => {
       try {
+        // Cargar desde localStorage primero (fallback rápido)
+        const localBackup = localStorage.getItem('site_settings_backup');
+        if (localBackup) {
+          try {
+            const parsed = JSON.parse(localBackup);
+            setSettings(prev => ({ ...prev, ...parsed }));
+          } catch (e) { console.error("Error parsing local backup", e); }
+        }
+
         const { data: setRes } = await supabase.from('settings').select('data').eq('id', 'site_config').maybeSingle();
-        if (setRes) setSettings(prev => ({...prev, ...setRes.data}));
+        if (setRes && setRes.data) {
+          setSettings(prev => ({...prev, ...setRes.data}));
+          // Actualizar backup local con datos reales de la nube
+          localStorage.setItem('site_settings_backup', JSON.stringify(setRes.data));
+        }
 
         const { data: catRes } = await supabase.from('categories').select('*').order('order', { ascending: true });
         if (catRes) setCategories(catRes);
@@ -357,14 +370,19 @@ const App = () => {
             className="flex items-center gap-4 cursor-pointer group"
             onClick={() => { setActiveTab('all'); if (!isAdmin) setIsLoginOpen(true); }}
           >
-            {settings.logo ? (
-              <img src={settings.logo} className="w-12 h-12 object-contain rounded-2xl border border-white/10 p-1 bg-black shadow-lg" alt="Logo" />
-            ) : (
-              <div className="w-12 h-12 rounded-2xl bg-cyan-500 text-black flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                <i className="fas fa-volume-up text-xl"></i>
-              </div>
-            )}
-            <span className="text-2xl font-black italic tracking-tighter uppercase group-hover:text-cyan-400 transition-colors">{settings.name}</span>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden shadow-2xl transition-all duration-500 ${settings.logo ? 'bg-transparent' : 'bg-zinc-900 border border-white/10 group-hover:border-cyan-500/50'}`}>
+              {settings.logo ? (
+                <img src={settings.logo} className="w-full h-full object-contain" alt="Logo" />
+              ) : (
+                <div className="w-full h-full bg-cyan-500 text-black flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.4)]">
+                  <i className="fas fa-volume-up text-2xl"></i>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-2xl font-black italic tracking-tighter uppercase group-hover:text-cyan-400 transition-colors leading-none">{settings.name}</span>
+              <span className="text-[9px] font-bold text-cyan-500 tracking-[0.3em] uppercase mt-1 opacity-70">Premium Garage</span>
+            </div>
           </div>
           
           <div className="flex items-center gap-6">
@@ -467,8 +485,24 @@ const App = () => {
           syncUpdateProduct={syncUpdateProduct}
           syncRemoveProduct={syncRemoveProduct}
           syncUpdateSettings={async (s: SiteSettings) => {
-             const { error } = await supabase.from('settings').upsert({ id: 'site_config', data: s });
-             if (!error) { setSettings(s); alert("Ajustes guardados"); }
+             try {
+               // Guardar en localStorage inmediatamente para feedback instantáneo
+               localStorage.setItem('site_settings_backup', JSON.stringify(s));
+               setSettings(s);
+
+               const { error } = await supabase.from('settings').upsert({ id: 'site_config', data: s });
+               if (error) {
+                 console.error("Error saving to Supabase:", error);
+                 // No alertamos aquí si el backup local funcionó, pero informamos en consola
+                 console.warn("Los cambios se guardaron localmente pero hubo un problema con la nube. Verifica las políticas RLS de Supabase.");
+                 alert("Guardado localmente. Nota: Hubo un problema al sincronizar con la nube (Supabase).");
+               } else {
+                 alert("¡Ajustes guardados y sincronizados correctamente!");
+               }
+             } catch (err) {
+               console.error("Unexpected error:", err);
+               alert("Error al guardar. Los cambios se mantendrán solo en esta sesión.");
+             }
           }}
         />
       )}
@@ -598,14 +632,72 @@ const AdminProds = ({ categories, products, onAdd, onUpdate, onRemove }: any) =>
 
 const AdminSettings = ({ settings, onUpdate }: any) => {
   const [form, setForm] = useState(settings);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setForm(settings);
+  }, [settings]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    await onUpdate(form);
+    setIsSaving(false);
+  };
+
   return (
     <div className="bg-zinc-900 p-6 rounded-3xl border border-white/5 space-y-4">
       <h3 className="text-white font-black uppercase italic text-sm">Ajustes del Sitio</h3>
       <div className="space-y-4">
+        <div>
+          <label className="text-[10px] uppercase font-black text-zinc-500">Logo del Sitio</label>
+          <div className="flex items-center gap-4 mt-2">
+            {form.logo && (
+              <div className="relative group">
+                <img src={form.logo} className="w-16 h-16 object-contain bg-black rounded-xl border border-white/10 p-2" alt="Preview" />
+                <button 
+                  onClick={() => setForm({...form, logo: ''})}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                >&times;</button>
+              </div>
+            )}
+            <div className="flex-1">
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={async e => { 
+                  if(e.target.files?.[0]) {
+                    const base64 = await fileToBase64(e.target.files[0]);
+                    setForm({...form, logo: base64});
+                  }
+                }} 
+                className="text-[10px] text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-white/5 file:text-white hover:file:bg-white/10 cursor-pointer" 
+              />
+            </div>
+          </div>
+        </div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">Nombre</label><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">WhatsApp</label><input value={form.whatsapp} onChange={e => setForm({...form, whatsapp: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">Instagram</label><input value={form.socialLink} onChange={e => setForm({...form, socialLink: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
-        <button onClick={() => onUpdate(form)} className="w-full bg-white text-black py-3 rounded-xl font-black uppercase text-xs">Guardar Cambios</button>
+        
+        <div className="pt-4 border-t border-white/5 space-y-4">
+          <h4 className="text-[10px] uppercase font-black text-cyan-500">Ajustes de Portada (Hero)</h4>
+          <div><label className="text-[10px] uppercase font-black text-zinc-500">Título de Portada</label><input value={form.heroTitle} onChange={e => setForm({...form, heroTitle: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
+          <div><label className="text-[10px] uppercase font-black text-zinc-500">Descripción de Portada</label><textarea value={form.heroDescription} onChange={e => setForm({...form, heroDescription: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm h-20" /></div>
+          <div><label className="text-[10px] uppercase font-black text-zinc-500">Imagen de Portada (URL)</label><input value={form.heroImage} onChange={e => setForm({...form, heroImage: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
+        </div>
+
+        <button 
+          onClick={handleSave} 
+          disabled={isSaving}
+          className="w-full bg-white text-black py-3 rounded-xl font-black uppercase text-xs disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isSaving ? (
+            <>
+              <span className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></span>
+              Guardando...
+            </>
+          ) : 'Guardar Cambios'}
+        </button>
       </div>
     </div>
   );
