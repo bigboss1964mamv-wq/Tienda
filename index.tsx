@@ -58,13 +58,16 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 // --- Components ---
 
-const ProductCard: React.FC<{ product: Product, onAdd: (p: Product, s: string) => void, primaryColor: string }> = ({ product, onAdd, primaryColor }) => {
+const ProductCard: React.FC<{ product: Product, onAdd: (p: Product, s: string) => void, onSelect: (p: Product) => void, primaryColor: string }> = ({ product, onAdd, onSelect, primaryColor }) => {
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] || 'Única');
 
   return (
     <div className="bg-zinc-900/50 backdrop-blur-md rounded-3xl overflow-hidden border border-white/5 hover:border-cyan-500/50 transition-all duration-500 group flex flex-col h-full shadow-2xl hover:shadow-cyan-500/10 hover:bg-zinc-900/80">
       {/* Contenedor de Imagen ajustado para ver el producto completo */}
-      <div className="relative aspect-square overflow-hidden bg-black/60 flex items-center justify-center p-6">
+      <div 
+        className="relative aspect-square overflow-hidden bg-black/60 flex items-center justify-center p-6 cursor-pointer"
+        onClick={() => onSelect(product)}
+      >
         {product.mediaType === 'image' ? (
           <img 
             src={product.mediaUrl} 
@@ -80,7 +83,10 @@ const ProductCard: React.FC<{ product: Product, onAdd: (p: Product, s: string) =
       </div>
       
       <div className="p-5 flex flex-col flex-1">
-        <h3 className="text-white font-bold text-lg mb-1 group-hover:text-cyan-400 transition-colors uppercase italic tracking-tighter line-clamp-1">
+        <h3 
+          className="text-white font-bold text-lg mb-1 group-hover:text-cyan-400 transition-colors uppercase italic tracking-tighter line-clamp-1 cursor-pointer"
+          onClick={() => onSelect(product)}
+        >
           {product.name}
         </h3>
         {/* Descripción con visibilidad mejorada en hover */}
@@ -177,6 +183,69 @@ const CartSidebar = ({ cart, updateQuantity, checkout, onClose, primaryColor }: 
   );
 };
 
+const ProductDetailModal = ({ product, onAdd, onClose }: { product: Product, onAdd: (p: Product, s: string) => void, onClose: () => void }) => {
+  const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] || 'Única');
+
+  return (
+    <div className="fixed inset-0 z-[150] bg-black/90 backdrop-blur-2xl flex items-center justify-center p-4 md:p-8">
+      <div className="w-full max-w-5xl bg-zinc-950 rounded-[40px] overflow-hidden border border-white/10 shadow-2xl flex flex-col md:flex-row animate-scale-in">
+        <div className="w-full md:w-1/2 bg-black/40 flex items-center justify-center p-8 relative">
+          <button onClick={onClose} className="absolute top-6 left-6 md:hidden w-10 h-10 bg-black/50 rounded-full flex items-center justify-center text-white text-2xl z-10">&times;</button>
+          {product.mediaType === 'image' ? (
+            <img src={product.mediaUrl} className="max-w-full max-h-[60vh] object-contain" alt={product.name} />
+          ) : (
+            <video src={product.mediaUrl} className="max-w-full max-h-[60vh] object-contain" muted autoPlay loop />
+          )}
+        </div>
+        
+        <div className="w-full md:w-1/2 p-8 md:p-12 flex flex-col">
+          <div className="flex justify-between items-start mb-6">
+            <div>
+              <span className="text-cyan-500 text-[10px] font-black uppercase tracking-[0.5em] mb-2 block">Detalles del Producto</span>
+              <h2 className="text-3xl md:text-5xl font-black italic uppercase tracking-tighter text-white leading-none">{product.name}</h2>
+            </div>
+            <button onClick={onClose} className="hidden md:flex w-12 h-12 items-center justify-center rounded-full hover:bg-white/5 transition-colors text-white text-4xl">&times;</button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto custom-scrollbar pr-4 mb-8">
+            <p className="text-zinc-400 text-lg leading-relaxed mb-8 whitespace-pre-wrap">
+              {product.description}
+            </p>
+            
+            {product.sizes && product.sizes.length > 0 && product.sizes[0] !== 'Única' && (
+              <div className="mb-8">
+                <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Opciones Disponibles</h4>
+                <div className="flex flex-wrap gap-3">
+                  {product.sizes.map(s => (
+                    <button 
+                      key={s} 
+                      onClick={() => setSelectedSize(s)}
+                      className={`px-6 py-3 rounded-2xl font-bold border transition-all ${selectedSize === s ? 'bg-cyan-500 border-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                    >{s}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="pt-8 border-t border-white/5 flex items-center justify-between gap-6">
+            <div className="flex flex-col">
+              <span className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1">Inversión</span>
+              <span className="text-4xl font-black text-white italic">${Number(product.price).toLocaleString()}</span>
+            </div>
+            <button 
+              onClick={() => { onAdd(product, selectedSize); onClose(); }}
+              className="flex-1 bg-white text-black py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-cyan-500 transition-all shadow-lg shadow-white/10 active:scale-95"
+            >
+              Agregar al Carrito
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Main App ---
 const App = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -200,14 +269,28 @@ const App = () => {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   useEffect(() => {
     const safetyTimeout = setTimeout(() => setIsLoading(false), 5000);
 
     const fetchData = async () => {
       try {
+        // Cargar desde localStorage primero (fallback rápido)
+        const localBackup = localStorage.getItem('site_settings_backup');
+        if (localBackup) {
+          try {
+            const parsed = JSON.parse(localBackup);
+            setSettings(prev => ({ ...prev, ...parsed }));
+          } catch (e) { console.error("Error parsing local backup", e); }
+        }
+
         const { data: setRes } = await supabase.from('settings').select('data').eq('id', 'site_config').maybeSingle();
-        if (setRes) setSettings(prev => ({...prev, ...setRes.data}));
+        if (setRes && setRes.data) {
+          setSettings(prev => ({...prev, ...setRes.data}));
+          // Actualizar backup local con datos reales de la nube
+          localStorage.setItem('site_settings_backup', JSON.stringify(setRes.data));
+        }
 
         const { data: catRes } = await supabase.from('categories').select('*').order('order', { ascending: true });
         if (catRes) setCategories(catRes);
@@ -357,14 +440,19 @@ const App = () => {
             className="flex items-center gap-4 cursor-pointer group"
             onClick={() => { setActiveTab('all'); if (!isAdmin) setIsLoginOpen(true); }}
           >
-            {settings.logo ? (
-              <img src={settings.logo} className="w-12 h-12 object-contain rounded-2xl border border-white/10 p-1 bg-black shadow-lg" alt="Logo" />
-            ) : (
-              <div className="w-12 h-12 rounded-2xl bg-cyan-500 text-black flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                <i className="fas fa-volume-up text-xl"></i>
-              </div>
-            )}
-            <span className="text-2xl font-black italic tracking-tighter uppercase group-hover:text-cyan-400 transition-colors">{settings.name}</span>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center overflow-hidden shadow-2xl transition-all duration-500 ${settings.logo ? 'bg-transparent' : 'bg-zinc-900 border border-white/10 group-hover:border-cyan-500/50'}`}>
+              {settings.logo ? (
+                <img src={settings.logo} className="w-full h-full object-contain" alt="Logo" />
+              ) : (
+                <div className="w-full h-full bg-cyan-500 text-black flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.4)]">
+                  <i className="fas fa-volume-up text-2xl"></i>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-2xl font-black italic tracking-tighter uppercase group-hover:text-cyan-400 transition-colors leading-none">{settings.name}</span>
+              <span className="text-[9px] font-bold text-cyan-500 tracking-[0.3em] uppercase mt-1 opacity-70">Premium Garage</span>
+            </div>
           </div>
           
           <div className="flex items-center gap-6">
@@ -440,7 +528,7 @@ const App = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
           {(activeTab === 'all' ? Object.values(products).flat() : products[activeTab] || []).map(prod => (
-            <ProductCard key={prod.id} product={prod} onAdd={addToCart} primaryColor={settings.primaryColor} />
+            <ProductCard key={prod.id} product={prod} onAdd={addToCart} onSelect={setSelectedProduct} primaryColor={settings.primaryColor} />
           ))}
         </div>
       </main>
@@ -467,12 +555,29 @@ const App = () => {
           syncUpdateProduct={syncUpdateProduct}
           syncRemoveProduct={syncRemoveProduct}
           syncUpdateSettings={async (s: SiteSettings) => {
-             const { error } = await supabase.from('settings').upsert({ id: 'site_config', data: s });
-             if (!error) { setSettings(s); alert("Ajustes guardados"); }
+             try {
+               // Guardar en localStorage inmediatamente para feedback instantáneo
+               localStorage.setItem('site_settings_backup', JSON.stringify(s));
+               setSettings(s);
+
+               const { error } = await supabase.from('settings').upsert({ id: 'site_config', data: s });
+               if (error) {
+                 console.error("Error saving to Supabase:", error);
+                 // No alertamos aquí si el backup local funcionó, pero informamos en consola
+                 console.warn("Los cambios se guardaron localmente pero hubo un problema con la nube. Verifica las políticas RLS de Supabase.");
+                 alert("Guardado localmente. Nota: Hubo un problema al sincronizar con la nube (Supabase).");
+               } else {
+                 alert("¡Ajustes guardados y sincronizados correctamente!");
+               }
+             } catch (err) {
+               console.error("Unexpected error:", err);
+               alert("Error al guardar. Los cambios se mantendrán solo en esta sesión.");
+             }
           }}
         />
       )}
       {isCartOpen && <CartSidebar cart={cart} updateQuantity={updateQuantity} checkout={checkout} onClose={() => setIsCartOpen(false)} />}
+      {selectedProduct && <ProductDetailModal product={selectedProduct} onAdd={addToCart} onClose={() => setSelectedProduct(null)} />}
     </div>
   );
 };
@@ -598,14 +703,119 @@ const AdminProds = ({ categories, products, onAdd, onUpdate, onRemove }: any) =>
 
 const AdminSettings = ({ settings, onUpdate }: any) => {
   const [form, setForm] = useState(settings);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setForm(settings);
+  }, [settings]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    await onUpdate(form);
+    setIsSaving(false);
+  };
+
   return (
     <div className="bg-zinc-900 p-6 rounded-3xl border border-white/5 space-y-4">
       <h3 className="text-white font-black uppercase italic text-sm">Ajustes del Sitio</h3>
       <div className="space-y-4">
+        <div>
+          <label className="text-[10px] uppercase font-black text-zinc-500">Logo del Sitio</label>
+          <div className="flex items-center gap-4 mt-2">
+            {form.logo && (
+              <div className="relative group">
+                <img src={form.logo} className="w-16 h-16 object-contain bg-black rounded-xl border border-white/10 p-2" alt="Preview" />
+                <button 
+                  onClick={() => setForm({...form, logo: ''})}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                >&times;</button>
+              </div>
+            )}
+            <div className="flex-1">
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={async e => { 
+                  if(e.target.files?.[0]) {
+                    const base64 = await fileToBase64(e.target.files[0]);
+                    setForm({...form, logo: base64});
+                  }
+                }} 
+                className="text-[10px] text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-white/5 file:text-white hover:file:bg-white/10 cursor-pointer" 
+              />
+            </div>
+          </div>
+        </div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">Nombre</label><input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">WhatsApp</label><input value={form.whatsapp} onChange={e => setForm({...form, whatsapp: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
         <div><label className="text-[10px] uppercase font-black text-zinc-500">Instagram</label><input value={form.socialLink} onChange={e => setForm({...form, socialLink: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
-        <button onClick={() => onUpdate(form)} className="w-full bg-white text-black py-3 rounded-xl font-black uppercase text-xs">Guardar Cambios</button>
+        
+        <div className="pt-4 border-t border-white/5 space-y-4">
+          <h4 className="text-[10px] uppercase font-black text-cyan-500">Ajustes de Portada (Hero)</h4>
+          
+          <div>
+            <label className="text-[10px] uppercase font-black text-zinc-500 block mb-2">Imagen de Portada</label>
+            <div className="flex flex-col gap-3">
+              {form.heroImage && (
+                <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-white/10 group">
+                  <img src={form.heroImage} className="w-full h-full object-cover" alt="Hero Preview" />
+                  <button 
+                    onClick={() => setForm({...form, heroImage: ''})}
+                    className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <label className="flex-1 bg-zinc-900 border border-dashed border-white/20 p-4 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-cyan-500/50 hover:bg-zinc-800 transition-all group">
+                  <i className="fas fa-image text-xl mb-2 text-zinc-500 group-hover:text-cyan-500"></i>
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase">Subir desde ordenador</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setForm({...form, heroImage: reader.result as string});
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
+                <div className="flex-1 flex flex-col gap-2">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase px-1">O usar URL externa</span>
+                  <input 
+                    value={form.heroImage} 
+                    onChange={e => setForm({...form, heroImage: e.target.value})} 
+                    placeholder="https://ejemplo.com/imagen.jpg"
+                    className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" 
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div><label className="text-[10px] uppercase font-black text-zinc-500">Título de Portada</label><input value={form.heroTitle} onChange={e => setForm({...form, heroTitle: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm" /></div>
+          <div><label className="text-[10px] uppercase font-black text-zinc-500">Descripción de Portada</label><textarea value={form.heroDescription} onChange={e => setForm({...form, heroDescription: e.target.value})} className="w-full bg-black border border-white/10 p-3 rounded-xl text-white text-sm h-20" /></div>
+        </div>
+
+        <button 
+          onClick={handleSave} 
+          disabled={isSaving}
+          className="w-full bg-white text-black py-3 rounded-xl font-black uppercase text-xs disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isSaving ? (
+            <>
+              <span className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></span>
+              Guardando...
+            </>
+          ) : 'Guardar Cambios'}
+        </button>
       </div>
     </div>
   );
